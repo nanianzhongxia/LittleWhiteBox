@@ -30,3 +30,52 @@ test('host owns in-flight encoding and reuses persisted results after iframe rep
     release('new-paid');
     assert.equal((await forced).encoding, 'new-paid');
 });
+test('encoding uses the host library image when the iframe snapshot is stale', async () => {
+    const item = { id: 'one', image: 'host-image', encodings: {} };
+    let encodedInput;
+    const service = createVibeEncodingService({
+        readItem: () => item,
+        encode: async input => { encodedInput = input; return 'encoding'; },
+        save: async () => true,
+    });
+
+    const result = await service.run({
+        id: 'one', image: 'stale-iframe-image', model: 'nai-diffusion-4-5-full', informationExtracted: 0.65,
+    });
+
+    assert.equal(encodedInput.image, 'host-image');
+    assert.equal(result.encoding, 'encoding');
+});
+
+test('missing Vibe item has a specific error', async () => {
+    const service = createVibeEncodingService({ readItem: () => null, encode: async () => 'unused', save: async () => true });
+
+    await assert.rejects(
+        service.run({ id: 'missing', image: 'image', model: 'nai-diffusion-4-5-full' }),
+        /参考素材不存在或已删除/,
+    );
+});
+
+test('missing image has a specific error', async () => {
+    const service = createVibeEncodingService({
+        readItem: () => ({ id: 'one', image: '', encodings: {} }),
+        encode: async () => 'unused', save: async () => true,
+    });
+
+    await assert.rejects(
+        service.run({ id: 'one', image: 'image', model: 'nai-diffusion-4-5-full' }),
+        /参考素材缺少原图/,
+    );
+});
+
+test('unsupported Vibe model has a specific error', async () => {
+    const service = createVibeEncodingService({
+        readItem: () => ({ id: 'one', image: 'host-image', encodings: {} }),
+        encode: async () => 'unused', save: async () => true,
+    });
+
+    await assert.rejects(
+        service.run({ id: 'one', image: 'host-image', model: 'nai-diffusion-5-full' }),
+        /当前模型不支持 Vibe 编码/,
+    );
+});
